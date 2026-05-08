@@ -1,6 +1,6 @@
 # mascon_fusion
 
-mascon_fusion is a Python framework for generating fused GRACE/GRACE-FO mascon solutions from multiple independent mascon products within a common inversion framework.
+`mascon_fusion` is a Python framework for generating fused GRACE/GRACE-FO mascon solutions from multiple independent mascon products within a common inversion framework.
 
 This software combines mascon solutions from multiple analysis centers after coastline harmonization using coastline resolution improvement (CRI) filtering techniques (Wiese et al., 2016, Water Resources Research).
 
@@ -10,7 +10,7 @@ The COM-TG mascon product created using this software package is available for d
 
 ## Citation
 
-Please cite McGirr and Tregoning, 2026 (``A combined mascon product from multiple analyses of GRACE and GRACE Follow-On space gravity data'', GRL) when using the mascon_fusion software. 
+Please cite McGirr and Tregoning, 2026 (*A combined mascon product from multiple analyses of GRACE and GRACE Follow-On space gravity data*, GRL) when using the mascon_fusion software. 
 
 ---
 
