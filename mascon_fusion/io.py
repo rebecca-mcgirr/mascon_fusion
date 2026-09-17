@@ -8,14 +8,16 @@ and CRI mascon grids.
 Functions:
 - write_fusion_netcdf
 - load_mascon_fusion_grid
-- write_fusion_residuals_netcdf
 - load_mascon_grid
+- write_fusion_residuals_netcdf
+- load_residuals
 
 Author: R McGirr 2026-03
 """
 
 import os
 import datetime
+import netCDF4 as nc
 from weakref import ref
 import numpy as np
 from netCDF4 import Dataset
@@ -71,17 +73,22 @@ def load_mascon_fusion_grid(filename, load_solution=False, remove_nans=False):
         mascons['ewh'] = grid.var['solution']['lwe_thickness'] / 100
         mascons['SE'] = grid.var['solution']['SE'] / 100
 
-        time = grid.var['time']
-        grid.decyear = get_decyear(time)
+        grid.time = grid.var['time']
+        try:
+            grid.time_bounds = grid.var['solution']['time_bounds']
+        except:
+            print("Warning: time_bounds not found in solution group; setting to None")
+            grid.time_bounds = None
+        grid.decyear = get_decyear(grid.time)
 
         # Build gridded EWH
         grid.ewh = mascons['ewh'][:, grid.mascon_id - 1].reshape(
-                   len(time), grid.nlat, grid.nlon
+                   len(grid.time), grid.nlat, grid.nlon
         ).data
 
         # Build gridded SE
         grid.SE = mascons['SE'][:, grid.mascon_id - 1].reshape(
-                   len(time), grid.nlat, grid.nlon
+                   len(grid.time), grid.nlat, grid.nlon
         ).data
 
         grid.sigma0 = grid.var['solution']['sigma0']
@@ -383,7 +390,7 @@ def write_fusion_residuals_netcdf(
 
 def load_mascon_grid(filename, load_solution=False):
     """
-    Load mascon grid and metadata from NetCDF file.
+    Load full global mascon grid and metadata from NetCDF file.
 
     Parameters
     ----------
@@ -428,15 +435,165 @@ def load_mascon_grid(filename, load_solution=False):
         # Convert from cm to meters
         mascons['ewh'] = grid.var['solution']['lwe_thickness'] / 100
 
-        time = grid.var['time']
-        grid.decyear = get_decyear(time)
+        grid.time = grid.var['solution'].get('time', grid.var.get('time'))
+        try:
+            grid.time_bounds = grid.var['solution']['time_bounds']
+        except:
+            print("Warning: time_bounds not found in solution group; setting to None")
+            grid.time_bounds = None
+        grid.decyear = get_decyear(grid.time)
 
         # Build gridded EWH
         grid.ewh = mascons['ewh'][:, grid.mascon_id - 1].reshape(
-                   len(time), grid.nlat, grid.nlon
+                   len(grid.time), grid.nlat, grid.nlon
         )
 
     # Clean up raw NetCDF variable container
     del grid.var
 
     return grid, mascons
+
+def write_mascon_grid_global(filename, grid, mascons, mask, title=None, summary=None):
+
+    # check if file exists
+    if os.path.exists(filename): os.remove(filename)
+
+    # convert ewh in m to cm
+    lwe_thickness = mascons['ewh']*100
+
+    # Now write mascon_placement to a netcdf file
+    nc_file = Dataset(filename, 'w', format='NETCDF4')
+    nc_file.set_auto_mask(False)
+
+    # create dimensions
+    lon_dim = nc_file.createDimension('lon', len(grid.lon))
+    lat_dim = nc_file.createDimension('lat', len(grid.lat))
+    time_dim = nc_file.createDimension('time', len(grid.time))
+    bounds_dim = nc_file.createDimension('bounds', 2)
+    mascon_dim = nc_file.createDimension('mascon', int(np.max(grid.mascon_id)))
+
+    # Create variables
+    grid_lon_var = nc_file.createVariable('lon', 'f8', ('lon',))
+    grid_lat_var = nc_file.createVariable('lat', 'f8', ('lat',))
+    grid_mascon_ID_var = nc_file.createVariable('mascon_ID', 'i4', ('lat','lon'))
+    grid_mask_var = nc_file.createVariable('mask', 'i4', ('lat','lon'))
+
+    # create group for mascon info
+    mascon_group = nc_file.createGroup('mascon_info')
+    mascon_ID_var = mascon_group.createVariable('id', 'i4', ('mascon',))
+    mascon_lat_var = mascon_group.createVariable('lat_center', 'f8', ('mascon',))
+    mascon_lon_var = mascon_group.createVariable('lon_center', 'f8', ('mascon',))
+    mascon_area_var = mascon_group.createVariable('area', 'f8', ('mascon',))
+
+    # create group for solution
+    solution_group = nc_file.createGroup('solution')
+    time_var = solution_group.createVariable('time', 'f8', ('time'))
+    ewh_var = solution_group.createVariable('lwe_thickness', 'f8', ('time','mascon'))
+    time_bounds_var = solution_group.createVariable('time_bounds', 'f8', ('time', 'bounds'))
+
+    # write to grid variables
+    grid_lon_var[:] = grid.lon
+    grid_lat_var[:] = grid.lat
+    grid_mascon_ID_var[:] = grid.mascon_id
+    grid_mask_var[:] = mask
+
+    # write to mascon info variables
+    mascon_ID_var[:] = mascons['id']
+    mascon_lat_var[:] = mascons['lat']
+    mascon_lon_var[:] = mascons['lon']
+    mascon_area_var[:] = mascons['area']
+
+    # write to solution variables
+    time_var[:] = grid.time
+    ewh_var[:] = lwe_thickness
+    time_bounds_var[:] = grid.time_bounds
+
+    # lon_var
+    for lon_var in [grid_lon_var, mascon_lon_var]:
+        lon_var.units = 'degrees_east'
+        lon_var.long_name = 'longitude'
+        lon_var.standard_name = 'longitude'
+        lon_var.axis = 'X'
+        lon_var.valid_min = lon_var[:].min()
+        lon_var.valid_max = lon_var[:].max()
+
+    # lat_var
+    for lat_var in [grid_lat_var, mascon_lat_var]:
+        lat_var.units = 'degrees_north'
+        lat_var.long_name = 'latitude'
+        lat_var.standard_name = 'latitude'
+        lat_var.axis = 'Y'
+        lat_var.valid_min = lat_var[:].min()
+        lat_var.valid_max = lat_var[:].max()
+
+    # time_var
+    time_var.units = 'days since 2002-01-01T00:00:00Z'
+    time_var.long_name = 'time'
+    time_var.standard_name = 'time'
+    time_var.axis = 'T'
+    time_var.calendar = 'gregorian'
+    time_var.bounds = 'time_bounds'
+
+    # time_bounds_var
+    time_bounds_var.long_name = 'time boundaries'
+    time_bounds_var.units = 'days since 2002-01-01T00:00:00Z'
+    time_bounds_var.comment = 'time bounds for the beginning and end of each month'
+
+    # mask_var
+    grid_mask_var.units = 'dimensionless'
+    grid_mask_var.long_name = 'Land mask'
+    grid_mask_var.standard_name = 'mask'
+    grid_mask_var.coordinates = 'lat lon'
+    grid_mask_var.valid_min = mask.min()
+    grid_mask_var.valid_max = mask.max()
+    grid_mask_var.description = 'land mask for the grid'
+
+    # mascon_ID_var
+    for mascon_ID_var in [grid_mascon_ID_var, mascon_ID_var]:
+        mascon_ID_var.units = 'dimensionless'
+        mascon_ID_var.long_name = 'Mascon_Identifier'
+        mascon_ID_var.standard_name = 'Mascon_ID'
+        mascon_ID_var.coordinates = 'lat lon'
+        mascon_ID_var.valid_min = grid.mascon_id.min()
+        mascon_ID_var.valid_max = grid.mascon_id.max()
+        mascon_ID_var.description = 'Primary mascon number mapped to the grid'
+
+    # area_var
+    mascon_area_var.units = 'm2'
+    mascon_area_var.long_name = 'mascon area'
+    mascon_area_var.standard_name = 'mascon area'
+    mascon_area_var.valid_min = mascon_area_var[:].min()
+    mascon_area_var.valid_max = mascon_area_var[:].max()
+
+    # ewh_var
+    ewh_var.units = 'cm'
+    ewh_var.long_name = 'Liquid_Water_Equivalent_Thickness'
+    ewh_var.standard_name = 'Liquid_Water_Equivalent_Thickness'
+    ewh_var.coordinates = 'time mascons'
+    ewh_var.grid_mapping = 'WGS84'
+    ewh_var.valid_min = lwe_thickness.min()
+    ewh_var.valid_max = lwe_thickness.max()
+
+    if title is not None: nc_file.title = title
+    if summary is not None: nc_file.summary = summary
+
+    # Close the NetCDF file
+    nc_file.close()
+
+def load_residuals(grid, path):
+    print(f"Loading residuals from {path}")
+    d = nc.Dataset(path)
+    grid_residuals = {}
+    residuals = {'ewh': {},
+                'mascon_ID': {}
+                }
+    print(f"Products found: {d.products}")
+    centres = d.products.split(', ')
+    for ce in centres:
+        residuals['ewh'][ce] = d[f'residuals/{ce}'][:, :].data / 100
+        residuals['mascon_ID'][ce] = d[f'mascon_ID_{ce}'][:].data
+        # reshape the residuals to the same shape as the fusion solution
+        grid_residuals[ce] = residuals['ewh'][ce][:, residuals['mascon_ID'][ce] - 1].reshape(
+                        d['time'].shape[0], grid.nlat, grid.nlon
+        )
+    return grid_residuals, residuals

@@ -185,7 +185,6 @@ class regular_grid:
         grid_area_km2 = np.nansum(self.area)/1e6
         print(f'Surface area of grid is {grid_area_km2:.2f} km^2')
     
-
     def get_mapping_sht(self, d=0.5, llon=0., rlon=360., llat=90., rlat=-90., inv=True):
         '''
         Creates a regular grid of points on the surface of the Earth
@@ -223,6 +222,18 @@ class regular_grid:
         d, inds = tree.query(list(zip(xG, yG, zG)), k=1)
         self.idx_near = np.int_(inds.reshape(to_grid.lonv.shape))
 
+    def quick_plot(self,data,units=None,vmin=None,vmax=None,cmap='viridis'):
+        import matplotlib.pyplot as plt
+        if self.lat[0] < self.lat[-1]:
+            origin = 'lower'
+        else:
+            origin = 'upper'
+        fig,ax = plt.subplots()
+        im = ax.imshow(data,vmin=vmin,vmax=vmax,cmap=cmap,extent=self.extent,origin=origin)
+        fig.colorbar(im,ax=ax,orientation='horizontal',label=units)
+        plt.show()
+        plt.close()
+
     def nearest_idx(self, lat, lon):
         """
         Find the nearest grid cell to a given lat, lon
@@ -235,4 +246,3 @@ class regular_grid:
         dist = np.sqrt((self.latv - lat)**2 + (self.lonv - lon)**2)
         idx = np.unravel_index(np.argmin(dist), dist.shape)
         return idx
-    

@@ -18,6 +18,17 @@ Author: R McGirr 2026-03
 import datetime
 import numpy as np
 
+def date_to_daysince(year, month, day, ref_year=2002, ref_month=1, ref_day=1):
+    """
+    Convert a calendar date to days since a reference date.
+    year, month, day: int, the calendar date
+    ref_year, ref_month, ref_day: int, the reference date
+    """
+    ref_date = datetime.date(ref_year, ref_month, ref_day)
+    target_date = datetime.date(year, month, day)
+    delta = target_date - ref_date
+    return delta.days
+
 def get_decyear(time_array, year=2002, month=1, day=1):
     ref_date = datetime.date(year, month, day)
     decyear = decyear_from_daysince(time_array, ref_date)
